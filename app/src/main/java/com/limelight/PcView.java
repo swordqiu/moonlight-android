@@ -543,6 +543,7 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                 try {
                     ComputerDetails details = new ComputerDetails();
                     details.manualAddress = new ComputerDetails.AddressTuple(host, port);
+                    details.isAddedViaUriIntent = true;
                     if (scheme.equals("moonlights")) {
                         details.serverCert = new AndroidCryptoProvider(PcView.this).getClientCertificate();
                     }

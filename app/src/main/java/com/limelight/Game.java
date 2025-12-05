@@ -2523,9 +2523,24 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                         }
 
                         Dialog.displayDialog(Game.this, getResources().getString(R.string.conn_terminated_title),
-                                message, true);
+                                message, new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        // If quitOnEsc is true and server disconnected, quit the application
+                                        if (quitOnEsc) {
+                                            quitApplication();
+                                            return;
+                                        }
+                                        Game.this.finish();
+                                    }
+                                });
                     }
                     else {
+                        // If quitOnEsc is true and server disconnected, quit the application
+                        if (quitOnEsc) {
+                            quitApplication();
+                            return;
+                        }
                         finish();
                     }
                 }
