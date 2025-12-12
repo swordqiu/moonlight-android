@@ -1442,6 +1442,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                 float decodeTimeMs = (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
                 long rttInfo = MoonBridge.getEstimatedRttInfo();
+                
+                // Calculate real-time bitrate from bytes received over time
+                float elapsedSeconds = (SystemClock.uptimeMillis() - lastTwo.measurementStartTimestamp) / 1000.0f;
+                float bitrateMbps = 0.0f;
+                if (elapsedSeconds > 0 && lastTwo.totalBytesReceived > 0) {
+                    // Convert bytes to bits, then to Mbps
+                    // totalBytesReceived * 8 bits/byte / elapsedSeconds / 1000000 bits/Mbps
+                    bitrateMbps = (lastTwo.totalBytesReceived * 8.0f) / elapsedSeconds / 1000000.0f;
+                }
+                
                 StringBuilder sb = new StringBuilder();
                 sb.append(context.getString(R.string.perf_overlay_streamdetails, initialWidth + "x" + initialHeight, fps.totalFps)).append('\n');
                 sb.append(context.getString(R.string.perf_overlay_decoder, decoder)).append('\n');
@@ -1457,7 +1467,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.maxHostProcessingLatency / 10,
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
-                sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
+                sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs)).append('\n');
+                // Display real-time bitrate in Mbps
+                sb.append(context.getString(R.string.perf_overlay_bitrate, bitrateMbps));
                 perfListener.onPerfUpdate(sb.toString());
             }
 
@@ -1690,6 +1702,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         activeWindowVideoStats.totalFramesReceived++;
         activeWindowVideoStats.totalFrames++;
+        activeWindowVideoStats.totalBytesReceived += decodeUnitLength;
 
         if (!FRAME_RENDER_TIME_ONLY) {
             // Count time from first packet received to enqueue time as receive time

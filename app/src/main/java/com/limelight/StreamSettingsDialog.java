@@ -344,9 +344,52 @@ public class StreamSettingsDialog {
                 CheckBox streamInfoSwitch = dialogView.findViewById(R.id.streamInfoSwitch);
                 streamInfoSwitch.setChecked(currentPerfOverlay);
 
-                // Initialize on-screen controls visibility switch
-                CheckBox showOscSwitch = dialogView.findViewById(R.id.showOscSwitch);
-                showOscSwitch.setChecked(prefConfig.onscreenController);
+                // Initialize on-screen virtual device radio group
+                RadioGroup onscreenVirtualDeviceGroup = dialogView.findViewById(R.id.onscreenVirtualDeviceGroup);
+                
+                RadioButton onscreenNoneRadio = dialogView.findViewById(R.id.onscreenNone);
+                RadioButton onscreenControllerRadio = dialogView.findViewById(R.id.onscreenController);
+                RadioButton onscreenKeyboardRadio = dialogView.findViewById(R.id.onscreenKeyboard);
+                
+                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
+                boolean currentKeyboardVisible = prefConfig.onscreenKeyboard;
+                boolean currentControllerVisible = prefConfig.onscreenController;
+                
+                // Set initial selection: prioritize keyboard if visible, otherwise controller
+                // Since radio buttons are mutually exclusive, one must always be selected
+                if (currentKeyboardVisible) {
+                    onscreenKeyboardRadio.setChecked(true);
+                } else {
+                    onscreenKeyboardRadio.setChecked(false);
+                }
+                if (currentControllerVisible) {
+                    onscreenControllerRadio.setChecked(true);
+                } else {
+                    onscreenControllerRadio.setChecked(false);
+                }
+                if (!currentKeyboardVisible && !currentControllerVisible) {
+                    onscreenNoneRadio.setChecked(true);
+                } else {
+                    onscreenNoneRadio.setChecked(false);
+                }
+                
+                // Update visual appearance of radio buttons
+                updateResolutionButtonBackground(onscreenNoneRadio, onscreenNoneRadio.isChecked());
+                updateResolutionButtonBackground(onscreenControllerRadio, onscreenControllerRadio.isChecked());
+                updateResolutionButtonBackground(onscreenKeyboardRadio, onscreenKeyboardRadio.isChecked());
+                
+                // Also update visuals when focus changes so focused item stands out for gamepad users
+                View.OnFocusChangeListener virtualDeviceFocusListener = new View.OnFocusChangeListener() {
+                    @Override
+                    public void onFocusChange(View v, boolean hasFocus) {
+                        updateResolutionButtonBackground(onscreenNoneRadio, onscreenNoneRadio.isChecked());
+                        updateResolutionButtonBackground(onscreenControllerRadio, onscreenControllerRadio.isChecked());
+                        updateResolutionButtonBackground(onscreenKeyboardRadio, onscreenKeyboardRadio.isChecked());
+                    }
+                };
+                onscreenNoneRadio.setOnFocusChangeListener(virtualDeviceFocusListener);
+                onscreenControllerRadio.setOnFocusChangeListener(virtualDeviceFocusListener);
+                onscreenKeyboardRadio.setOnFocusChangeListener(virtualDeviceFocusListener);
 
                 // Initialize touchscreen-as-touchpad switch
                 CheckBox touchscreenTrackpadSwitch = dialogView.findViewById(R.id.touchscreenTrackpadSwitch);
@@ -370,19 +413,50 @@ public class StreamSettingsDialog {
                     }
                 });
 
-                // Listen for on-screen controls visibility toggle
-                showOscSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                // Listen for on-screen virtual device selection change
+                onscreenVirtualDeviceGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
                     @Override
-                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    public void onCheckedChanged(RadioGroup group, int checkedId) {
                         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
-                        prefs.edit().putBoolean("checkbox_show_onscreen_controls", isChecked).apply();
-
-                        prefConfig.onscreenController = isChecked;
-
-                        if (isChecked) {
-                            ((Game) activity).showVirtualController();
-                        } else {
+                        
+                        // Update visual appearance of radio buttons
+                        updateResolutionButtonBackground(onscreenNoneRadio, checkedId == R.id.onscreenNone);
+                        updateResolutionButtonBackground(onscreenControllerRadio, checkedId == R.id.onscreenController);
+                        updateResolutionButtonBackground(onscreenKeyboardRadio, checkedId == R.id.onscreenKeyboard);
+                        
+                        if (checkedId == R.id.onscreenNone) {
+                            // None selected: hide controller and keyboard
+                            prefs.edit()
+                            .putBoolean("checkbox_show_onscreen_controls", false)
+                            .putBoolean("checkbox_show_virtual_keyboard", false).apply();
+                            
+                            prefConfig.onscreenController = false;
+                            prefConfig.onscreenKeyboard = false;
+                            
                             ((Game) activity).hideVirtualController();
+                            ((Game) activity).hideVirtualKeyboard();
+                        } else if (checkedId == R.id.onscreenController) {
+                            // Controller selected: show controller, hide keyboard
+                            prefs.edit()
+                            .putBoolean("checkbox_show_onscreen_controls", true)
+                            .putBoolean("checkbox_show_virtual_keyboard", false).apply();
+                            
+                            prefConfig.onscreenController = true;
+                            prefConfig.onscreenKeyboard = false;
+                            
+                            ((Game) activity).showVirtualController();
+                            ((Game) activity).hideVirtualKeyboard();
+                        } else if (checkedId == R.id.onscreenKeyboard) {
+                            // Keyboard selected: show keyboard, hide controller
+                            prefs.edit()
+                            .putBoolean("checkbox_show_onscreen_controls", false)
+                            .putBoolean("checkbox_show_virtual_keyboard", true).apply();
+                            
+                            prefConfig.onscreenController = false;
+                            prefConfig.onscreenKeyboard = true;
+                            
+                            ((Game) activity).hideVirtualController();
+                            ((Game) activity).showVirtualKeyboard();
                         }
                     }
                 });
@@ -416,17 +490,23 @@ public class StreamSettingsDialog {
                 });
 
                 // Initialize volume seekbar
+                TextView volumeLabel = dialogView.findViewById(R.id.volumeLabel);
                 SeekBar volumeSeekBar = dialogView.findViewById(R.id.volumeSeekBar);
                 volumeSeekBar.setProgress(volumePercent);
+                
+                // Update label with current percentage
+                volumeLabel.setText("音频音量(" + volumePercent + "%)");
+                
                 // Update stream volume immediately as the user adjusts the slider
                 volumeSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                     @Override
                     public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                        if (!fromUser) {
-                            return;
+                        if (fromUser) {
+                            // Update label with current percentage
+                            volumeLabel.setText("音频音量(" + progress + "%)");
+                            int newVolume = (int) ((progress / 100.0f) * maxVolume);
+                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0);
                         }
-                        int newVolume = (int) ((progress / 100.0f) * maxVolume);
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0);
                     }
 
                     @Override
@@ -437,6 +517,182 @@ public class StreamSettingsDialog {
                     @Override
                     public void onStopTrackingTouch(SeekBar seekBar) {
                         // No-op
+                    }
+                });
+
+                // Initialize bitrate radio group
+                RadioGroup bitrateGroup = dialogView.findViewById(R.id.bitrateGroup);
+                RadioButton bitrate2Mbps = dialogView.findViewById(R.id.bitrate2Mbps);
+                RadioButton bitrate5Mbps = dialogView.findViewById(R.id.bitrate5Mbps);
+                RadioButton bitrate10Mbps = dialogView.findViewById(R.id.bitrate10Mbps);
+                RadioButton bitrate20Mbps = dialogView.findViewById(R.id.bitrate20Mbps);
+                
+                // Read bitrate directly from SharedPreferences to ensure we have the latest value
+                SharedPreferences bitratePrefs = PreferenceManager.getDefaultSharedPreferences(activity);
+                int currentBitrateKbps = bitratePrefs.getInt("seekbar_bitrate_kbps", 0);
+                // Fallback to old preference name (in Mbps, convert to Kbps)
+                if (currentBitrateKbps == 0) {
+                    int oldBitrateMbps = bitratePrefs.getInt("seekbar_bitrate", 0);
+                    if (oldBitrateMbps > 0) {
+                        currentBitrateKbps = oldBitrateMbps * 1000;
+                    } else {
+                        // If no saved value, use the current value from prefConfig
+                        currentBitrateKbps = prefConfig.bitrate;
+                    }
+                }
+                
+                // Convert bitrate from Kbps to Mbps for display (bitrate is stored in Kbps)
+                int currentBitrateMbps = currentBitrateKbps / 1000;
+                
+                // Set initial selection based on current bitrate (round to nearest option)
+                int selectedBitrateMbps = 10; // Default to 10Mbps
+                if (currentBitrateMbps <= 3) {
+                    selectedBitrateMbps = 2;
+                } else if (currentBitrateMbps <= 7) {
+                    selectedBitrateMbps = 5;
+                } else if (currentBitrateMbps <= 15) {
+                    selectedBitrateMbps = 10;
+                } else {
+                    selectedBitrateMbps = 20;
+                }
+                
+                // Set the initial selection
+                switch (selectedBitrateMbps) {
+                    case 2:
+                        bitrate2Mbps.setChecked(true);
+                        break;
+                    case 5:
+                        bitrate5Mbps.setChecked(true);
+                        break;
+                    case 10:
+                        bitrate10Mbps.setChecked(true);
+                        break;
+                    case 20:
+                        bitrate20Mbps.setChecked(true);
+                        break;
+                }
+                
+                // Store the initial bitrate value to restore if user cancels
+                final int[] initialBitrateMbps = {selectedBitrateMbps};
+                final int[] previousBitrateCheckedId = {bitrateGroup.getCheckedRadioButtonId()};
+                final boolean[] ignoreBitrateChange = {false};
+                
+                // Update button backgrounds based on selection
+                updateBitrateButtonBackground(bitrate2Mbps, bitrate2Mbps.isChecked());
+                updateBitrateButtonBackground(bitrate5Mbps, bitrate5Mbps.isChecked());
+                updateBitrateButtonBackground(bitrate10Mbps, bitrate10Mbps.isChecked());
+                updateBitrateButtonBackground(bitrate20Mbps, bitrate20Mbps.isChecked());
+                
+                // Also update visuals when focus changes so focused item stands out for gamepad users
+                View.OnFocusChangeListener bitrateFocusListener = new View.OnFocusChangeListener() {
+                    @Override
+                    public void onFocusChange(View v, boolean hasFocus) {
+                        updateBitrateButtonBackground(bitrate2Mbps, bitrate2Mbps.isChecked());
+                        updateBitrateButtonBackground(bitrate5Mbps, bitrate5Mbps.isChecked());
+                        updateBitrateButtonBackground(bitrate10Mbps, bitrate10Mbps.isChecked());
+                        updateBitrateButtonBackground(bitrate20Mbps, bitrate20Mbps.isChecked());
+                    }
+                };
+                bitrate2Mbps.setOnFocusChangeListener(bitrateFocusListener);
+                bitrate5Mbps.setOnFocusChangeListener(bitrateFocusListener);
+                bitrate10Mbps.setOnFocusChangeListener(bitrateFocusListener);
+                bitrate20Mbps.setOnFocusChangeListener(bitrateFocusListener);
+                
+                // Handle bitrate selection changes
+                bitrateGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(RadioGroup group, int checkedId) {
+                        // Ignore programmatic changes
+                        if (ignoreBitrateChange[0]) {
+                            return;
+                        }
+                        
+                        int newBitrateMbps = 10; // Default
+                        
+                        if (checkedId == R.id.bitrate2Mbps) {
+                            newBitrateMbps = 2;
+                        } else if (checkedId == R.id.bitrate5Mbps) {
+                            newBitrateMbps = 5;
+                        } else if (checkedId == R.id.bitrate10Mbps) {
+                            newBitrateMbps = 10;
+                        } else if (checkedId == R.id.bitrate20Mbps) {
+                            newBitrateMbps = 20;
+                        }
+                        
+                        // Update button backgrounds
+                        updateBitrateButtonBackground(bitrate2Mbps, checkedId == R.id.bitrate2Mbps);
+                        updateBitrateButtonBackground(bitrate5Mbps, checkedId == R.id.bitrate5Mbps);
+                        updateBitrateButtonBackground(bitrate10Mbps, checkedId == R.id.bitrate10Mbps);
+                        updateBitrateButtonBackground(bitrate20Mbps, checkedId == R.id.bitrate20Mbps);
+                        
+                        // If bitrate didn't change, nothing else to do
+                        if (newBitrateMbps == initialBitrateMbps[0]) {
+                            previousBitrateCheckedId[0] = checkedId;
+                            return;
+                        }
+                        
+                        // Only show dialog if bitrate actually changed
+                        if (newBitrateMbps != initialBitrateMbps[0]) {
+                            final int finalBitrateMbps = newBitrateMbps;
+                            
+                            // Ask user whether to quit for the change to take effect
+                            new AlertDialog.Builder(activity)
+                                    .setTitle("视频码率更改")
+                                    .setMessage("需要退出应用以使更改生效。是否现在退出？")
+                                    .setPositiveButton("是", new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(DialogInterface dialog, int which) {
+                                            // Save bitrate preference in Kbps
+                                            int bitrateKbps = finalBitrateMbps * 1000;
+                                            
+                                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
+                                            prefs.edit().putInt("seekbar_bitrate_kbps", bitrateKbps).apply();
+                                            
+                                            // Update in-memory config
+                                            prefConfig.bitrate = bitrateKbps;
+                                            
+                                            // Update initial value
+                                            initialBitrateMbps[0] = finalBitrateMbps;
+                                            
+                                            // Quit the application
+                                            if (quitListener != null) {
+                                                quitListener.onQuitRequested();
+                                            }
+                                        }
+                                    })
+                                    .setNegativeButton("否", new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(DialogInterface dialog, int which) {
+                                            // Reset radio group to original value
+                                            ignoreBitrateChange[0] = true;
+                                            bitrateGroup.check(previousBitrateCheckedId[0]);
+                                            ignoreBitrateChange[0] = false;
+                                            
+                                            // Update button backgrounds
+                                            updateBitrateButtonBackground(bitrate2Mbps, previousBitrateCheckedId[0] == R.id.bitrate2Mbps);
+                                            updateBitrateButtonBackground(bitrate5Mbps, previousBitrateCheckedId[0] == R.id.bitrate5Mbps);
+                                            updateBitrateButtonBackground(bitrate10Mbps, previousBitrateCheckedId[0] == R.id.bitrate10Mbps);
+                                            updateBitrateButtonBackground(bitrate20Mbps, previousBitrateCheckedId[0] == R.id.bitrate20Mbps);
+                                        }
+                                    })
+                                    .setCancelable(true)
+                                    .setOnCancelListener(new DialogInterface.OnCancelListener() {
+                                        @Override
+                                        public void onCancel(DialogInterface dialog) {
+                                            // Reset radio group to original value if dialog is cancelled
+                                            ignoreBitrateChange[0] = true;
+                                            bitrateGroup.check(previousBitrateCheckedId[0]);
+                                            ignoreBitrateChange[0] = false;
+                                            
+                                            // Update button backgrounds
+                                            updateBitrateButtonBackground(bitrate2Mbps, previousBitrateCheckedId[0] == R.id.bitrate2Mbps);
+                                            updateBitrateButtonBackground(bitrate5Mbps, previousBitrateCheckedId[0] == R.id.bitrate5Mbps);
+                                            updateBitrateButtonBackground(bitrate10Mbps, previousBitrateCheckedId[0] == R.id.bitrate10Mbps);
+                                            updateBitrateButtonBackground(bitrate20Mbps, previousBitrateCheckedId[0] == R.id.bitrate20Mbps);
+                                        }
+                                    })
+                                    .show();
+                        }
                     }
                 });
 
@@ -519,7 +775,21 @@ public class StreamSettingsDialog {
 
         if (isSelected) {
             // Selected: blue background, brighter when focused
-            button.setBackgroundColor(isFocused ? 0xFF42A5F5 : 0xFF2196F3);
+            button.setBackgroundColor(isFocused ? 0xFF42A5F5 : 0x802196F3);
+            button.setTextColor(0xFFFFFFFF); // White text
+        } else {
+            // Not selected: dark background, lighter when focused
+            button.setBackgroundColor(isFocused ? 0xFF444444 : 0xFF000000);
+            button.setTextColor(0xFFFFFFFF); // White text
+        }
+    }
+
+    private void updateBitrateButtonBackground(RadioButton button, boolean isSelected) {
+        boolean isFocused = button.isFocused();
+
+        if (isSelected) {
+            // Selected: blue background, brighter when focused
+            button.setBackgroundColor(isFocused ? 0xFF42A5F5 : 0x802196F3);
             button.setTextColor(0xFFFFFFFF); // White text
         } else {
             // Not selected: dark background, lighter when focused

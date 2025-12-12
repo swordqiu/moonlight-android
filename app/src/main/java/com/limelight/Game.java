@@ -13,6 +13,7 @@ import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
+import com.limelight.binding.input.virtual_keyboard.VirtualKeyboard;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -112,6 +113,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private VirtualController virtualController;
+    private VirtualKeyboard virtualKeyboard;
 
     private PreferenceConfiguration prefConfig;
     private SharedPreferences tombstonePrefs;
@@ -524,6 +526,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             virtualController.show();
         }
 
+        if (prefConfig.onscreenKeyboard) {
+            // create virtual keyboard
+            virtualKeyboard = new VirtualKeyboard(this,
+                    (FrameLayout)streamView.getParent(),
+                    conn,
+                    prefConfig);
+            virtualKeyboard.refreshLayout();
+            virtualKeyboard.show();
+        }
+
         if (prefConfig.usbDriver) {
             // Start the USB driver
             bindService(new Intent(this, UsbDriverService.class),
@@ -596,6 +608,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
         }
+        
+        if (virtualKeyboard != null) {
+            // Refresh layout of virtual keyboard for possible new screen size
+            virtualKeyboard.refreshLayout();
+        }
 
         // Hide on-screen overlays in PiP mode
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -604,6 +621,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                 if (virtualController != null) {
                     virtualController.hide();
+                }
+                
+                if (virtualKeyboard != null) {
+                    virtualKeyboard.hide();
                 }
 
                 performanceOverlayView.setVisibility(View.GONE);
@@ -622,6 +643,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                 if (virtualController != null) {
                     virtualController.show();
+                }
+                
+                if (virtualKeyboard != null) {
+                    virtualKeyboard.show();
                 }
 
                 if (prefConfig.enablePerfOverlay) {
@@ -1094,6 +1119,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (virtualController != null) {
             virtualController.hide();
         }
+        
+        if (virtualKeyboard != null) {
+            virtualKeyboard.hide();
+        }
 
         if (quitOnEsc && !isFinishing() && !isQuitting) {
             quitApplication();
@@ -1174,6 +1203,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void hideVirtualController() {
         if (virtualController != null) {
             virtualController.hide();
+        }
+    }
+
+    protected void showVirtualKeyboard() {
+        if (virtualKeyboard == null) {
+            virtualKeyboard = new VirtualKeyboard(this,
+                    (FrameLayout)streamView.getParent(),
+                    conn,
+                    prefConfig);
+        }
+        virtualKeyboard.refreshLayout();
+        virtualKeyboard.show();
+    }
+
+    protected void hideVirtualKeyboard() {
+        if (virtualKeyboard != null) {
+            virtualKeyboard.hide();
         }
     }
 
@@ -1432,6 +1478,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 return false;
             }
         }
+        
+        // If virtual keyboard is visible, hijack all gamepad input (start key already handled above)
+        if (virtualKeyboard != null && virtualKeyboard.isVisible()) {
+            if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+                // Hijack all gamepad input for virtual keyboard
+                return virtualKeyboard.onKeyDown(event.getKeyCode(), event); // Consume the event
+            }
+        }
 
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
@@ -1461,6 +1515,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         boolean handled = false;
 
         if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+            // If virtual keyboard is visible, don't process gamepad input (already handled above)
+            if (virtualKeyboard != null && virtualKeyboard.isVisible()) {
+                return true; // Consume the event
+            }
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonDown(event);
@@ -1533,6 +1591,29 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             }
         }
 
+        // Handle ESC/BACK/START key to toggle settings dialog if launched from URI
+        if ((event.getKeyCode() == KeyEvent.KEYCODE_ESCAPE ||
+                event.getKeyCode() == KeyEvent.KEYCODE_BACK ||
+                event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_START) && quitOnEsc) {
+
+            // If the settings dialog is already showing, close it
+            if (streamSettingsDialog != null && streamSettingsDialog.isShowing()) {
+                streamSettingsDialog.dismiss();
+            } else {
+                // Otherwise, show the settings dialog
+                showSettingsDialog();
+            }
+            return true;
+        }
+        
+        // If virtual keyboard is visible, hijack all gamepad input (start key already handled above)
+        if (virtualKeyboard != null && virtualKeyboard.isVisible()) {
+            if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+                // Hijack all gamepad input for virtual keyboard
+                return virtualKeyboard.onKeyUp(event.getKeyCode(), event); // Consume the event
+            }
+        }
+
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -1557,23 +1638,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             return true;
         }
 
-        // Handle ESC/BACK/START key to toggle settings dialog if launched from URI
-        if ((event.getKeyCode() == KeyEvent.KEYCODE_ESCAPE ||
-                event.getKeyCode() == KeyEvent.KEYCODE_BACK ||
-                event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_START) && quitOnEsc) {
-
-            // If the settings dialog is already showing, close it
-            if (streamSettingsDialog != null && streamSettingsDialog.isShowing()) {
-                streamSettingsDialog.dismiss();
-            } else {
-                // Otherwise, show the settings dialog
-                showSettingsDialog();
-            }
-            return true;
-        }
-
         boolean handled = false;
         if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+            // If virtual keyboard is visible, don't process gamepad input (already handled above)
+            if (virtualKeyboard != null && virtualKeyboard.isVisible()) {
+                // Start key was already handled above, other keys are consumed
+                return true;
+            }
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonUp(event);
@@ -1945,6 +2016,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         int eventSource = event.getSource();
         int deviceSources = event.getDevice() != null ? event.getDevice().getSources() : 0;
         if ((eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) != 0) {
+            // If virtual keyboard is visible, hijack joystick input
+            if (virtualKeyboard != null && virtualKeyboard.isVisible()) {
+                return true; // Consume the event
+            }
             if (controllerHandler.handleMotionEvent(event)) {
                 return true;
             }
