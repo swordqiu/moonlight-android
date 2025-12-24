@@ -93,6 +93,9 @@ public class ShortcutHelper {
     }
 
     public void createAppViewShortcut(ComputerDetails computer, boolean forceAdd, boolean newlyPaired) {
+        if (computer.isAddedViaUriIntent) {
+            return;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             ShortcutInfo sinfo = new ShortcutInfo.Builder(context, computer.uuid)
                     .setIntent(ServerHelper.createPcShortcutIntent(context, computer))
@@ -147,6 +150,9 @@ public class ShortcutHelper {
 
     @TargetApi(Build.VERSION_CODES.O)
     public boolean createPinnedGameShortcut(ComputerDetails computer, NvApp app, Bitmap iconBits) {
+        if (computer.isAddedViaUriIntent) {
+            return false;
+        }
         if (sm.isRequestPinShortcutSupported()) {
             Icon appIcon;
 

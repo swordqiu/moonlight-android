@@ -76,10 +76,12 @@ public class ComputerDetails {
     public int runningGameId;
     public String rawAppList;
     public boolean nvidiaServer;
+    public boolean isAddedViaUriIntent;
 
     public ComputerDetails() {
         // Use defaults
         state = State.UNKNOWN;
+        isAddedViaUriIntent = false;
     }
 
     public ComputerDetails(ComputerDetails details) {
@@ -146,6 +148,9 @@ public class ComputerDetails {
         this.runningGameId = details.runningGameId;
         this.nvidiaServer = details.nvidiaServer;
         this.rawAppList = details.rawAppList;
+        if (details.isAddedViaUriIntent) {
+            this.isAddedViaUriIntent = true;
+        }
     }
 
     @Override
